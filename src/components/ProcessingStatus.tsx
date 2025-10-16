@@ -3,16 +3,19 @@ import { Headphones, FileText } from 'lucide-react';
 interface ProcessingStatusProps {
   status: string;
   fileName?: string;
+  progressMessage?: string;
 }
 export function ProcessingStatus({
   status,
-  fileName
+  fileName,
+  progressMessage
 }: ProcessingStatusProps) {
   return <div className="space-y-3">
       {fileName && <p className="text-xs truncate opacity-70">{fileName}</p>}
       <div className="w-full h-1 bg-secondary relative overflow-hidden rounded-full">
         <div className="absolute top-0 left-0 h-full bg-primary w-3/4 animate-pulse rounded-full"></div>
       </div>
+      {progressMessage && <p className="text-xs text-muted-foreground">{progressMessage}</p>}
       <div className="flex gap-4 mt-2">
         <div className="flex items-center gap-1.5">
           <div className={`w-4 h-4 rounded-full flex items-center justify-center ${status === 'extracting' ? 'bg-primary' : 'bg-primary/10'}`}>

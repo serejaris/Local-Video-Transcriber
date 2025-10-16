@@ -2,30 +2,42 @@ import React, { useState } from 'react';
 import { VideoUploader } from './components/VideoUploader';
 import { TranscriptionViewer } from './components/TranscriptionViewer';
 import { ProcessingStatus } from './components/ProcessingStatus';
+import { extractAudioFromVideo } from './services/audioExtractor';
+import { transcribeAudio } from './services/transcriber';
 export function App() {
   const [file, setFile] = useState<File | null>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [transcription, setTranscription] = useState<string>('');
   const [status, setStatus] = useState<string>('idle'); // idle, extracting, transcribing, done, error
   const [error, setError] = useState<string>('');
-  const handleFileUpload = (uploadedFile: File) => {
+  const [progressMessage, setProgressMessage] = useState<string>('');
+  const handleFileUpload = async (uploadedFile: File) => {
     setFile(uploadedFile);
     setStatus('extracting');
     setError('');
-    // Simulate audio extraction
-    setTimeout(() => {
-      setStatus('transcribing');
-      // Create a dummy audio blob for demonstration
-      const dummyAudioBlob = new Blob([], {
-        type: 'audio/mp3'
+    setProgressMessage('Initializing FFmpeg...');
+    
+    try {
+      const audio = await extractAudioFromVideo(uploadedFile, (progress) => {
+        setProgressMessage(`Extracting audio: ${progress}%`);
       });
-      setAudioBlob(dummyAudioBlob);
-      // Simulate transcription
-      setTimeout(() => {
-        setStatus('done');
-        setTranscription('Это пример транскрипции аудио из вашего видео. В реальном приложении здесь будет отображаться настоящая расшифровка речи из загруженного видео.\n\nThis is an example transcription of the audio from your video. In a real application, this would display the actual speech transcription from the uploaded video.');
-      }, 2000);
-    }, 2000);
+      
+      setAudioBlob(audio);
+      setStatus('transcribing');
+      
+      const text = await transcribeAudio(audio, (statusMsg) => {
+        setProgressMessage(statusMsg);
+      });
+      
+      setTranscription(text);
+      setStatus('done');
+      setProgressMessage('');
+    } catch (err) {
+      console.error('Error processing video:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred during processing');
+      setStatus('error');
+      setProgressMessage('');
+    }
   };
   const handleReset = () => {
     setFile(null);
@@ -43,7 +55,7 @@ export function App() {
               </button>
             </div>}
           {(status === 'idle' || status === 'error') && <VideoUploader onFileUpload={handleFileUpload} error={error} />}
-          {(status === 'extracting' || status === 'transcribing') && <ProcessingStatus status={status} fileName={file?.name} />}
+          {(status === 'extracting' || status === 'transcribing') && <ProcessingStatus status={status} fileName={file?.name} progressMessage={progressMessage} />}
           {status === 'done' && <TranscriptionViewer fileName={file?.name || ''} transcription={transcription} onReset={handleReset} />}
         </div>
       </main>
