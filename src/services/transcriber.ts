@@ -1,4 +1,8 @@
-import { pipeline, AutomaticSpeechRecognitionPipeline } from '@xenova/transformers';
+import { pipeline, AutomaticSpeechRecognitionPipeline, env } from '@xenova/transformers';
+
+env.allowLocalModels = false;
+env.allowRemoteModels = true;
+env.useBrowserCache = true;
 
 let transcriber: AutomaticSpeechRecognitionPipeline | null = null;
 
@@ -19,12 +23,18 @@ export async function initializeTranscriber(
       'Xenova/whisper-tiny.en',
       {
         quantized: true,
-        progress_callback: (progress: { status?: string; loaded?: number; total?: number }) => {
+        revision: 'main',
+        progress_callback: (progress: { status?: string; loaded?: number; total?: number; file?: string }) => {
           if (onProgress && progress.status) {
+            if (progress.file) {
+              console.log(`Loading: ${progress.file}`);
+            }
             const status = progress.status === 'progress' && progress.loaded && progress.total
               ? `Loading model: ${Math.round((progress.loaded / progress.total) * 100)}%`
               : progress.status === 'done' 
               ? 'Model loaded successfully'
+              : progress.status === 'initiate'
+              ? 'Starting model download...'
               : progress.status;
             onProgress(status);
           }
@@ -33,6 +43,11 @@ export async function initializeTranscriber(
     );
   } catch (error) {
     console.error('Failed to load Whisper model:', error);
+    
+    if (error instanceof Error && error.message.includes('JSON')) {
+      throw new Error('Failed to download the transcription model. This may be due to network issues or CDN unavailability. Please try again in a few moments, or check if you can access huggingface.co in your browser.');
+    }
+    
     throw new Error('Failed to load the transcription model. Please check your internet connection and try again.');
   }
 
