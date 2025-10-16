@@ -10,23 +10,31 @@ export async function initializeTranscriber(
   }
 
   if (onProgress) {
-    onProgress('Loading Whisper model...');
+    onProgress('Loading Whisper model (this may take a minute on first use)...');
   }
 
-  transcriber = await pipeline(
-    'automatic-speech-recognition',
-    'Xenova/whisper-tiny',
-    {
-      progress_callback: (progress: { status?: string; loaded?: number; total?: number }) => {
-        if (onProgress && progress.status) {
-          const status = progress.status === 'progress' && progress.loaded && progress.total
-            ? `Loading model: ${Math.round((progress.loaded / progress.total) * 100)}%`
-            : progress.status;
-          onProgress(status);
+  try {
+    transcriber = await pipeline(
+      'automatic-speech-recognition',
+      'Xenova/whisper-tiny.en',
+      {
+        quantized: true,
+        progress_callback: (progress: { status?: string; loaded?: number; total?: number }) => {
+          if (onProgress && progress.status) {
+            const status = progress.status === 'progress' && progress.loaded && progress.total
+              ? `Loading model: ${Math.round((progress.loaded / progress.total) * 100)}%`
+              : progress.status === 'done' 
+              ? 'Model loaded successfully'
+              : progress.status;
+            onProgress(status);
+          }
         }
       }
-    }
-  );
+    );
+  } catch (error) {
+    console.error('Failed to load Whisper model:', error);
+    throw new Error('Failed to load the transcription model. Please check your internet connection and try again.');
+  }
 
   return transcriber;
 }

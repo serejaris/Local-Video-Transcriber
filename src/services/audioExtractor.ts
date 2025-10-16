@@ -1,60 +1,104 @@
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
-
-let ffmpegInstance: FFmpeg | null = null;
-
-export async function initializeFFmpeg(onProgress?: (progress: number) => void): Promise<FFmpeg> {
-  if (ffmpegInstance && ffmpegInstance.loaded) {
-    return ffmpegInstance;
-  }
-
-  const ffmpeg = new FFmpeg();
-  
-  ffmpeg.on('log', ({ message }) => {
-    console.log('[FFmpeg]', message);
-  });
-
-  if (onProgress) {
-    ffmpeg.on('progress', ({ progress }) => {
-      onProgress(Math.round(progress * 100));
-    });
-  }
-
-  const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-  
-  await ffmpeg.load({
-    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-  });
-
-  ffmpegInstance = ffmpeg;
-  return ffmpeg;
-}
-
 export async function extractAudioFromVideo(
   videoFile: File,
   onProgress?: (progress: number) => void
 ): Promise<Blob> {
-  const ffmpeg = await initializeFFmpeg(onProgress);
+  try {
+    if (onProgress) {
+      onProgress(10);
+    }
 
-  const inputFileName = 'input.mp4';
-  const outputFileName = 'output.wav';
+    const audioContext = new AudioContext({ sampleRate: 16000 });
+    const arrayBuffer = await videoFile.arrayBuffer();
+    
+    if (onProgress) {
+      onProgress(40);
+    }
 
-  await ffmpeg.writeFile(inputFileName, await fetchFile(videoFile));
+    let audioBuffer: AudioBuffer;
+    try {
+      audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    } catch (error) {
+      throw new Error('Failed to extract audio from video. The video might not contain an audio track or the format is not supported by your browser.');
+    }
+    
+    if (onProgress) {
+      onProgress(60);
+    }
 
-  await ffmpeg.exec([
-    '-i', inputFileName,
-    '-vn',
-    '-acodec', 'pcm_s16le',
-    '-ar', '16000',
-    '-ac', '1',
-    outputFileName
-  ]);
+    const offlineContext = new OfflineAudioContext(
+      1,
+      audioBuffer.duration * 16000,
+      16000
+    );
 
-  const data = await ffmpeg.readFile(outputFileName);
-  
-  await ffmpeg.deleteFile(inputFileName);
-  await ffmpeg.deleteFile(outputFileName);
+    const source = offlineContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(offlineContext.destination);
+    source.start();
 
-  return new Blob([data], { type: 'audio/wav' });
+    const renderedBuffer = await offlineContext.startRendering();
+    
+    if (onProgress) {
+      onProgress(80);
+    }
+
+    const wavBlob = audioBufferToWav(renderedBuffer);
+    
+    if (onProgress) {
+      onProgress(100);
+    }
+    
+    return wavBlob;
+  } catch (error) {
+    console.error('Audio extraction error:', error);
+    throw error;
+  }
+}
+
+function audioBufferToWav(buffer: AudioBuffer): Blob {
+  const length = buffer.length * buffer.numberOfChannels * 2 + 44;
+  const arrayBuffer = new ArrayBuffer(length);
+  const view = new DataView(arrayBuffer);
+  const channels = [];
+  let offset = 0;
+  let pos = 0;
+
+  function setUint16(data: number) {
+    view.setUint16(pos, data, true);
+    pos += 2;
+  }
+
+  function setUint32(data: number) {
+    view.setUint32(pos, data, true);
+    pos += 4;
+  }
+
+  setUint32(0x46464952);
+  setUint32(length - 8);
+  setUint32(0x45564157);
+  setUint32(0x20746d66);
+  setUint32(16);
+  setUint16(1);
+  setUint16(buffer.numberOfChannels);
+  setUint32(buffer.sampleRate);
+  setUint32(buffer.sampleRate * 2 * buffer.numberOfChannels);
+  setUint16(buffer.numberOfChannels * 2);
+  setUint16(16);
+  setUint32(0x61746164);
+  setUint32(length - pos - 4);
+
+  for (let i = 0; i < buffer.numberOfChannels; i++) {
+    channels.push(buffer.getChannelData(i));
+  }
+
+  while (pos < length) {
+    for (let i = 0; i < buffer.numberOfChannels; i++) {
+      const sample = Math.max(-1, Math.min(1, channels[i][offset]));
+      view.setInt16(pos, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      pos += 2;
+    }
+    offset++;
+  }
+
+  return new Blob([arrayBuffer], { type: 'audio/wav' });
 }
