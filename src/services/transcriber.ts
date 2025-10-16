@@ -18,16 +18,17 @@ export async function initializeTranscriber(
   }
 
   try {
+    console.log('Attempting to load Whisper model from HuggingFace...');
+    
     transcriber = await pipeline(
       'automatic-speech-recognition',
-      'Xenova/whisper-tiny.en',
+      'Xenova/whisper-tiny',
       {
-        quantized: true,
-        revision: 'main',
+        quantized: false,
         progress_callback: (progress: { status?: string; loaded?: number; total?: number; file?: string }) => {
           if (onProgress && progress.status) {
             if (progress.file) {
-              console.log(`Loading: ${progress.file}`);
+              console.log(`Loading file: ${progress.file}`);
             }
             const status = progress.status === 'progress' && progress.loaded && progress.total
               ? `Loading model: ${Math.round((progress.loaded / progress.total) * 100)}%`
@@ -41,11 +42,16 @@ export async function initializeTranscriber(
         }
       }
     );
+    
+    console.log('Whisper model loaded successfully');
   } catch (error) {
     console.error('Failed to load Whisper model:', error);
     
-    if (error instanceof Error && error.message.includes('JSON')) {
-      throw new Error('Failed to download the transcription model. This may be due to network issues or CDN unavailability. Please try again in a few moments, or check if you can access huggingface.co in your browser.');
+    if (error instanceof Error) {
+      if (error.message.includes('JSON') || error.message.includes('doctype')) {
+        throw new Error('Failed to download the transcription model from HuggingFace. The CDN may be temporarily unavailable or blocked by your network. Please check:\n1. Can you access huggingface.co in your browser?\n2. Are you behind a firewall or VPN?\n3. Try clearing your browser cache and reloading.');
+      }
+      throw new Error(`Failed to load transcription model: ${error.message}`);
     }
     
     throw new Error('Failed to load the transcription model. Please check your internet connection and try again.');
